@@ -1,0 +1,1148 @@
+import fnmatch
+import json
+import os
+import time
+import uuid
+from datetime import datetime, timedelta, timezone
+
+import httpx
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+
+app = FastAPI(
+    title="Savas AI - Orchestrator",
+    version="0.5.0",
+)
+
+
+OMNIROUTE_URL = os.getenv(
+    "OMNIROUTE_URL",
+    "http://omniroute:20128/v1",
+)
+
+OMNIROUTE_KEY = os.getenv(
+    "OMNIROUTE_KEY",
+    "",
+)
+
+OBSIDIAN_AGENT_URL = os.getenv(
+    "OBSIDIAN_AGENT_URL",
+    "http://obsidian-agent:8000",
+)
+
+MODEL = os.getenv(
+    "MODEL",
+    "gh/gpt-4.1",
+)
+
+
+# --------------------------------------------------
+# In-memory task/activity/approval storage
+# --------------------------------------------------
+
+TASKS = {}
+ACTIVITY = []
+APPROVALS = {}
+AUTO_APPROVALS = {}
+
+MAX_ACTIVITY_EVENTS = 1000
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def parse_datetime(value: str):
+    return datetime.fromisoformat(
+        value.replace("Z", "+00:00")
+    )
+
+
+def add_activity(
+    task_id: str,
+    agent: str,
+    event: str,
+    status: str,
+    **details,
+):
+    activity = {
+        "timestamp": utc_now(),
+        "task_id": task_id,
+        "agent": agent,
+        "event": event,
+        "status": status,
+        **details,
+    }
+
+    ACTIVITY.append(activity)
+
+    if len(ACTIVITY) > MAX_ACTIVITY_EVENTS:
+        del ACTIVITY[:-MAX_ACTIVITY_EVENTS]
+
+    return activity
+
+
+def create_task(message: str):
+    task_id = str(uuid.uuid4())
+
+    TASKS[task_id] = {
+        "task_id": task_id,
+        "message": message,
+        "status": "running",
+        "created_at": utc_now(),
+        "completed_at": None,
+        "agent": "orchestrator",
+    }
+
+    return task_id
+
+
+def complete_task(task_id: str, status: str):
+    task = TASKS.get(task_id)
+
+    if task:
+        task["status"] = status
+        task["completed_at"] = utc_now()
+
+
+# --------------------------------------------------
+# Approval helpers
+# --------------------------------------------------
+
+def cleanup_expired_auto_approvals():
+    now = datetime.now(timezone.utc)
+
+    for approval_id, policy in list(
+        AUTO_APPROVALS.items()
+    ):
+        if policy["status"] != "active":
+            continue
+
+        expires_at = parse_datetime(
+            policy["expires_at"]
+        )
+
+        if expires_at <= now:
+            policy["status"] = "expired"
+            policy["expired_at"] = utc_now()
+
+
+def path_matches(
+    path: str,
+    patterns: list[str],
+):
+    return any(
+        fnmatch.fnmatchcase(path, pattern)
+        for pattern in patterns
+    )
+
+
+def auto_approval_matches(
+    agent: str,
+    action: str,
+    path: str | None,
+):
+    cleanup_expired_auto_approvals()
+
+    for policy in AUTO_APPROVALS.values():
+
+        if policy["status"] != "active":
+            continue
+
+        if policy["agent"] != "*" and policy["agent"] != agent:
+            continue
+
+        if (
+            "*" not in policy["actions"]
+            and action not in policy["actions"]
+        ):
+            continue
+
+        allowed_paths = policy.get("paths", ["*"])
+
+        if path is not None:
+            if not path_matches(
+                path,
+                allowed_paths,
+            ):
+                continue
+        elif allowed_paths != ["*"]:
+            continue
+
+        return policy
+
+    return None
+
+
+def create_approval(
+    task_id: str,
+    agent: str,
+    action: str,
+    arguments: dict,
+    reason: str,
+):
+    approval_id = str(uuid.uuid4())
+
+    approval = {
+        "approval_id": approval_id,
+        "task_id": task_id,
+        "agent": agent,
+        "action": action,
+        "arguments": arguments,
+        "reason": reason,
+        "status": "pending",
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+        "approved_at": None,
+        "rejected_at": None,
+    }
+
+    APPROVALS[approval_id] = approval
+
+    add_activity(
+        task_id=task_id,
+        agent=agent,
+        event="approval",
+        status="pending",
+        approval_id=approval_id,
+        action=action,
+        arguments=arguments,
+        reason=reason,
+    )
+
+    return approval
+
+
+def approve_approval(
+    approval_id: str,
+):
+    approval = APPROVALS.get(approval_id)
+
+    if not approval:
+        raise HTTPException(
+            status_code=404,
+            detail="Approval not found",
+        )
+
+    if approval["status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Approval is not pending. "
+                f"Current status: {approval['status']}"
+            ),
+        )
+
+    approval["status"] = "approved"
+    approval["approved_at"] = utc_now()
+    approval["updated_at"] = utc_now()
+
+    add_activity(
+        task_id=approval["task_id"],
+        agent=approval["agent"],
+        event="approval",
+        status="approved",
+        approval_id=approval_id,
+        action=approval["action"],
+    )
+
+    return approval
+
+
+def reject_approval(
+    approval_id: str,
+):
+    approval = APPROVALS.get(approval_id)
+
+    if not approval:
+        raise HTTPException(
+            status_code=404,
+            detail="Approval not found",
+        )
+
+    if approval["status"] != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Approval is not pending. "
+                f"Current status: {approval['status']}"
+            ),
+        )
+
+    approval["status"] = "rejected"
+    approval["rejected_at"] = utc_now()
+    approval["updated_at"] = utc_now()
+
+    add_activity(
+        task_id=approval["task_id"],
+        agent=approval["agent"],
+        event="approval",
+        status="rejected",
+        approval_id=approval_id,
+        action=approval["action"],
+    )
+
+    return approval
+
+
+# --------------------------------------------------
+# Tool definitions
+# --------------------------------------------------
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_notes",
+            "description": (
+                "Search the user's Obsidian vault for Markdown notes "
+                "matching a search query. Use this when the user asks "
+                "about information that may exist in their notes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Text to search for in the Obsidian vault."
+                        ),
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_note",
+            "description": (
+                "Read the complete contents of a specific Markdown note "
+                "from the user's Obsidian vault."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Relative path of the Markdown note inside "
+                            "the vault."
+                        ),
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_folder",
+            "description": (
+                "List the direct contents of a folder in the user's "
+                "Obsidian vault. Use this when you need to inspect "
+                "what notes or folders exist inside a specific folder."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Relative folder path inside the Obsidian "
+                            "vault. Use an empty string for the vault root."
+                        ),
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
+
+# --------------------------------------------------
+# Tool implementations
+# --------------------------------------------------
+
+async def search_notes(
+    query: str,
+    task_id: str,
+):
+    add_activity(
+        task_id=task_id,
+        agent="obsidian",
+        event="tool_call",
+        status="started",
+        tool="search_notes",
+        query=query,
+    )
+
+    start = time.perf_counter()
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{OBSIDIAN_AGENT_URL}/search",
+                params={"q": query},
+            )
+
+        response.raise_for_status()
+
+        result = response.json()
+
+        duration_ms = round(
+            (time.perf_counter() - start) * 1000
+        )
+
+        add_activity(
+            task_id=task_id,
+            agent="obsidian",
+            event="tool_call",
+            status="completed",
+            tool="search_notes",
+            query=query,
+            duration_ms=duration_ms,
+            result_count=result.get("count"),
+        )
+
+        return result
+
+    except Exception as exc:
+
+        duration_ms = round(
+            (time.perf_counter() - start) * 1000
+        )
+
+        add_activity(
+            task_id=task_id,
+            agent="obsidian",
+            event="tool_call",
+            status="failed",
+            tool="search_notes",
+            query=query,
+            duration_ms=duration_ms,
+            error=str(exc),
+        )
+
+        raise
+
+
+async def read_note(
+    path: str,
+    task_id: str,
+):
+    add_activity(
+        task_id=task_id,
+        agent="obsidian",
+        event="tool_call",
+        status="started",
+        tool="read_note",
+        path=path,
+    )
+
+    start = time.perf_counter()
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{OBSIDIAN_AGENT_URL}/note",
+                params={"path": path},
+            )
+
+        response.raise_for_status()
+
+        result = response.json()
+
+        duration_ms = round(
+            (time.perf_counter() - start) * 1000
+        )
+
+        add_activity(
+            task_id=task_id,
+            agent="obsidian",
+            event="tool_call",
+            status="completed",
+            tool="read_note",
+            path=path,
+            duration_ms=duration_ms,
+        )
+
+        return result
+
+    except Exception as exc:
+
+        duration_ms = round(
+            (time.perf_counter() - start) * 1000
+        )
+
+        add_activity(
+            task_id=task_id,
+            agent="obsidian",
+            event="tool_call",
+            status="failed",
+            tool="read_note",
+            path=path,
+            duration_ms=duration_ms,
+            error=str(exc),
+        )
+
+        raise
+
+
+async def list_folder(
+    path: str,
+    task_id: str,
+):
+    add_activity(
+        task_id=task_id,
+        agent="obsidian",
+        event="tool_call",
+        status="started",
+        tool="list_folder",
+        path=path,
+    )
+
+    start = time.perf_counter()
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{OBSIDIAN_AGENT_URL}/folder",
+                params={"path": path},
+            )
+
+        response.raise_for_status()
+
+        result = response.json()
+
+        duration_ms = round(
+            (time.perf_counter() - start) * 1000
+        )
+
+        add_activity(
+            task_id=task_id,
+            agent="obsidian",
+            event="tool_call",
+            status="completed",
+            tool="list_folder",
+            path=path,
+            duration_ms=duration_ms,
+            item_count=len(
+                result.get("items", [])
+            ),
+        )
+
+        return result
+
+    except Exception as exc:
+
+        duration_ms = round(
+            (time.perf_counter() - start) * 1000
+        )
+
+        add_activity(
+            task_id=task_id,
+            agent="obsidian",
+            event="tool_call",
+            status="failed",
+            tool="list_folder",
+            path=path,
+            duration_ms=duration_ms,
+            error=str(exc),
+        )
+
+        raise
+
+
+async def execute_tool(
+    name: str,
+    arguments: dict,
+    task_id: str,
+):
+    if name == "search_notes":
+        return await search_notes(
+            arguments["query"],
+            task_id,
+        )
+
+    if name == "read_note":
+        return await read_note(
+            arguments["path"],
+            task_id,
+        )
+
+    if name == "list_folder":
+        return await list_folder(
+            arguments["path"],
+            task_id,
+        )
+
+    raise ValueError(
+        f"Unknown tool: {name}"
+    )
+
+
+# --------------------------------------------------
+# API models
+# --------------------------------------------------
+
+class TaskRequest(BaseModel):
+    message: str
+
+
+class AutoApprovalRequest(BaseModel):
+    agent: str = "obsidian"
+    actions: list[str] = Field(
+        min_length=1
+    )
+    paths: list[str] = Field(
+        default_factory=lambda: ["*"]
+    )
+    duration_minutes: int = Field(
+        gt=0,
+        le=10080,
+    )
+
+
+# --------------------------------------------------
+# Health
+# --------------------------------------------------
+
+@app.get("/health")
+def health():
+    cleanup_expired_auto_approvals()
+
+    return {
+        "status": "ok",
+        "service": "orchestrator",
+        "model": MODEL,
+        "tools": [
+            "search_notes",
+            "read_note",
+            "list_folder",
+        ],
+        "active_tasks": sum(
+            1
+            for task in TASKS.values()
+            if task["status"] == "running"
+        ),
+        "pending_approvals": sum(
+            1
+            for approval in APPROVALS.values()
+            if approval["status"] == "pending"
+        ),
+        "active_auto_approvals": sum(
+            1
+            for policy in AUTO_APPROVALS.values()
+            if policy["status"] == "active"
+        ),
+        "activity_events": len(ACTIVITY),
+    }
+
+
+# --------------------------------------------------
+# Task / Activity endpoints
+# --------------------------------------------------
+
+@app.get("/tasks")
+def list_tasks():
+    return {
+        "count": len(TASKS),
+        "tasks": list(TASKS.values()),
+    }
+
+
+@app.get("/tasks/{task_id}")
+def get_task(task_id: str):
+    task = TASKS.get(task_id)
+
+    if not task:
+        raise HTTPException(
+            status_code=404,
+            detail="Task not found",
+        )
+
+    task_activity = [
+        event
+        for event in ACTIVITY
+        if event["task_id"] == task_id
+    ]
+
+    return {
+        "task": task,
+        "activity": task_activity,
+    }
+
+
+@app.get("/activity")
+def get_activity(
+    limit: int = 100,
+):
+    if limit < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be greater than 0",
+        )
+
+    return {
+        "count": min(
+            limit,
+            len(ACTIVITY),
+        ),
+        "events": ACTIVITY[-limit:],
+    }
+
+
+# --------------------------------------------------
+# Approval endpoints
+# --------------------------------------------------
+
+@app.get("/approvals")
+def list_approvals(
+    status: str | None = None,
+):
+    approvals = list(
+        APPROVALS.values()
+    )
+
+    if status:
+        approvals = [
+            approval
+            for approval in approvals
+            if approval["status"] == status
+        ]
+
+    return {
+        "count": len(approvals),
+        "approvals": approvals,
+    }
+
+
+@app.get("/approvals/{approval_id}")
+def get_approval(
+    approval_id: str,
+):
+    approval = APPROVALS.get(
+        approval_id
+    )
+
+    if not approval:
+        raise HTTPException(
+            status_code=404,
+            detail="Approval not found",
+        )
+
+    return approval
+
+
+@app.post("/approvals/{approval_id}/approve")
+def approve_endpoint(
+    approval_id: str,
+):
+    return approve_approval(
+        approval_id
+    )
+
+
+@app.post("/approvals/{approval_id}/reject")
+def reject_endpoint(
+    approval_id: str,
+):
+    return reject_approval(
+        approval_id
+    )
+
+
+# --------------------------------------------------
+# Auto-approval endpoints
+# --------------------------------------------------
+
+@app.post("/auto-approval")
+def create_auto_approval(
+    request: AutoApprovalRequest,
+):
+    now = datetime.now(timezone.utc)
+
+    expires_at = (
+        now
+        + timedelta(
+            minutes=request.duration_minutes
+        )
+    )
+
+    policy_id = str(uuid.uuid4())
+
+    policy = {
+        "auto_approval_id": policy_id,
+        "agent": request.agent,
+        "actions": request.actions,
+        "paths": request.paths,
+        "duration_minutes": request.duration_minutes,
+        "status": "active",
+        "created_at": now.isoformat(),
+        "expires_at": expires_at.isoformat(),
+    }
+
+    AUTO_APPROVALS[policy_id] = policy
+
+    add_activity(
+        task_id="system",
+        agent="orchestrator",
+        event="auto_approval",
+        status="created",
+        auto_approval_id=policy_id,
+        policy=policy,
+    )
+
+    return policy
+
+
+@app.get("/auto-approval")
+def list_auto_approvals():
+    cleanup_expired_auto_approvals()
+
+    policies = list(
+        AUTO_APPROVALS.values()
+    )
+
+    return {
+        "count": len(policies),
+        "auto_approvals": policies,
+    }
+
+
+@app.delete("/auto-approval/{policy_id}")
+def disable_auto_approval(
+    policy_id: str,
+):
+    policy = AUTO_APPROVALS.get(
+        policy_id
+    )
+
+    if not policy:
+        raise HTTPException(
+            status_code=404,
+            detail="Auto-approval policy not found",
+        )
+
+    if policy["status"] == "active":
+        policy["status"] = "disabled"
+        policy["disabled_at"] = utc_now()
+
+        add_activity(
+            task_id="system",
+            agent="orchestrator",
+            event="auto_approval",
+            status="disabled",
+            auto_approval_id=policy_id,
+        )
+
+    return policy
+
+
+# --------------------------------------------------
+# Main task execution
+# --------------------------------------------------
+
+@app.post("/task")
+async def create_task_endpoint(
+    request: TaskRequest,
+):
+    if not OMNIROUTE_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="OMNIROUTE_KEY is not configured",
+        )
+
+    task_id = create_task(
+        request.message
+    )
+
+    add_activity(
+        task_id=task_id,
+        agent="orchestrator",
+        event="task",
+        status="started",
+        message=request.message,
+    )
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Sen SAVAS AI'ın Orchestrator ajanısın. "
+                "Kullanıcının isteğini analiz eder ve gerektiğinde "
+                "Obsidian Agent araçlarını kullanırsın. "
+                "Kullanıcının kişisel bilgi tabanındaki bilgiye ihtiyaç "
+                "duyuyorsan önce search_notes kullan. "
+                "Belirli bir notun içeriğine ihtiyaç duyuyorsan "
+                "read_note kullan. "
+                "Vault içindeki klasör veya dosya yapısını anlaman "
+                "gerekiyorsa list_folder kullan. "
+                "Araçlardan gelen sonuçları kullanıcıya doğru ve "
+                "anlaşılır bir şekilde aktar."
+            ),
+        },
+        {
+            "role": "user",
+            "content": request.message,
+        },
+    ]
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=120
+        ) as client:
+
+            for iteration in range(5):
+
+                llm_start = time.perf_counter()
+
+                add_activity(
+                    task_id=task_id,
+                    agent="orchestrator",
+                    event="llm_call",
+                    status="started",
+                    model=MODEL,
+                    iteration=iteration + 1,
+                )
+
+                response = await client.post(
+                    f"{OMNIROUTE_URL}/chat/completions",
+                    headers={
+                        "Authorization": (
+                            f"Bearer {OMNIROUTE_KEY}"
+                        ),
+                        "Content-Type": (
+                            "application/json"
+                        ),
+                    },
+                    json={
+                        "model": MODEL,
+                        "messages": messages,
+                        "tools": TOOLS,
+                        "tool_choice": "auto",
+                    },
+                )
+
+                response.raise_for_status()
+
+                data = response.json()
+
+                llm_duration_ms = round(
+                    (
+                        time.perf_counter()
+                        - llm_start
+                    ) * 1000
+                )
+
+                usage = data.get(
+                    "usage",
+                    {},
+                )
+
+                add_activity(
+                    task_id=task_id,
+                    agent="orchestrator",
+                    event="llm_call",
+                    status="completed",
+                    model=MODEL,
+                    iteration=iteration + 1,
+                    duration_ms=llm_duration_ms,
+                    prompt_tokens=usage.get(
+                        "prompt_tokens"
+                    ),
+                    completion_tokens=usage.get(
+                        "completion_tokens"
+                    ),
+                    total_tokens=usage.get(
+                        "total_tokens"
+                    ),
+                )
+
+                assistant_message = data[
+                    "choices"
+                ][0]["message"]
+
+                tool_calls = assistant_message.get(
+                    "tool_calls"
+                )
+
+                if not tool_calls:
+
+                    final_response = (
+                        assistant_message.get(
+                            "content",
+                            "",
+                        )
+                    )
+
+                    complete_task(
+                        task_id,
+                        "completed",
+                    )
+
+                    add_activity(
+                        task_id=task_id,
+                        agent="orchestrator",
+                        event="task",
+                        status="completed",
+                    )
+
+                    return {
+                        "status": "completed",
+                        "task_id": task_id,
+                        "model": data.get("model"),
+                        "response": final_response,
+                        "usage": usage,
+                    }
+
+                messages.append(
+                    assistant_message
+                )
+
+                for tool_call in tool_calls:
+
+                    function = tool_call[
+                        "function"
+                    ]
+
+                    name = function[
+                        "name"
+                    ]
+
+                    try:
+                        arguments = json.loads(
+                            function.get(
+                                "arguments",
+                                "{}",
+                            )
+                        )
+
+                    except json.JSONDecodeError:
+
+                        add_activity(
+                            task_id=task_id,
+                            agent="orchestrator",
+                            event="tool_call",
+                            status="failed",
+                            tool=name,
+                            error=(
+                                "Invalid JSON arguments "
+                                "from model"
+                            ),
+                        )
+
+                        raise HTTPException(
+                            status_code=502,
+                            detail=(
+                                "Invalid tool arguments "
+                                "from model"
+                            ),
+                        )
+
+                    result = await execute_tool(
+                        name,
+                        arguments,
+                        task_id,
+                    )
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": (
+                                tool_call["id"]
+                            ),
+                            "content": json.dumps(
+                                result,
+                                ensure_ascii=False,
+                            ),
+                        }
+                    )
+
+            complete_task(
+                task_id,
+                "failed",
+            )
+
+            add_activity(
+                task_id=task_id,
+                agent="orchestrator",
+                event="task",
+                status="failed",
+                error=(
+                    "Maximum tool-calling "
+                    "iterations exceeded"
+                ),
+            )
+
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Maximum tool-calling "
+                    "iterations exceeded"
+                ),
+            )
+
+    except httpx.HTTPStatusError as exc:
+
+        complete_task(
+            task_id,
+            "failed",
+        )
+
+        add_activity(
+            task_id=task_id,
+            agent="orchestrator",
+            event="task",
+            status="failed",
+            error=(
+                "OmniRoute or Obsidian Agent "
+                "returned an HTTP error"
+            ),
+            status_code=exc.response.status_code,
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": (
+                    "OmniRoute or Obsidian Agent "
+                    "returned an error"
+                ),
+                "status_code": (
+                    exc.response.status_code
+                ),
+                "response": exc.response.text,
+            },
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+
+        complete_task(
+            task_id,
+            "failed",
+        )
+
+        add_activity(
+            task_id=task_id,
+            agent="orchestrator",
+            event="task",
+            status="failed",
+            error=str(exc),
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"Orchestrator error: {exc}",
+        )

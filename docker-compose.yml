@@ -1,0 +1,128 @@
+services:
+
+  obsidian-agent:
+    build:
+      context: ./agents/obsidian
+
+    container_name: ai-obsidian-agent
+    restart: unless-stopped
+
+    networks:
+      - ai-network
+
+    ports:
+      - "127.0.0.1:18001:8000"
+
+    volumes:
+      - /home/savas/Obsidian/SavasBrain:/mnt/vault:rw
+
+    environment:
+      TZ: Europe/Istanbul
+
+    security_opt:
+      - no-new-privileges:true
+
+
+  orchestrator:
+    build:
+      context: ./orchestrator
+
+    container_name: ai-orchestrator
+    restart: unless-stopped
+
+    networks:
+      - ai-network
+
+    ports:
+      - "127.0.0.1:18000:8000"
+
+    env_file:
+      - ./secrets/orchestrator.env
+      # Faz H: Tavily arama anahtarı (değeri kullanıcı girer).
+      - ./secrets/tavily.env
+
+    volumes:
+      # Only SAVAS-AI (workers, usage, shared); notes go through obsidian-agent.
+      - /home/savas/Obsidian/SavasBrain/SAVAS-AI:/mnt/vault/SAVAS-AI:rw
+      # Task store (Faz E): only this folder.
+      - /home/savas/AI/data:/data:rw
+      # Faz I (plan-i): runner sandbox copies (I-3: the orchestrator
+      # applies edit blocks here) and the runner's socket directory
+      # (no docker.sock).
+      - /home/savas/AI/sandbox:/sandbox:rw
+      - /home/savas/AI/runner/sock:/run/savas-runner:rw
+      # K-2 (plan-k karar A): CEO Interface statik dosyaları, salt okunur.
+      - /home/savas/AI/ui:/app/ui:ro
+      
+    environment:
+      TZ: Europe/Istanbul
+      OMNIROUTE_URL: http://omniroute:20128/v1
+      OBSIDIAN_AGENT_URL: http://obsidian-agent:8000
+      # Local LLM (C-8): llama-server, OmniRoute dışında doğrudan.
+      LOCAL_LLM_URL: http://ai-llama:8080
+      MODEL: gh/gpt-4.1
+      WORKERS_ROOT: /mnt/vault/SAVAS-AI
+      DEFAULT_WORKER: ares
+      WORKER_RETENTION_DAYS: 4
+      ARES_DAILY_TOKEN_BUDGET: 100000
+      WORKER_DAILY_TOKEN_BUDGET: 60000
+      SYSTEM_DAILY_TOKEN_BUDGET: 300000
+      TASK_TOKEN_BUDGET: 30000
+      REQUEST_TOKEN_BUDGET: 8000
+      COMPLETION_TOKEN_RESERVE: 2000
+      TASK_DB_PATH: /data/savas.db
+      RUNNER_SOCKET: /run/savas-runner/run.sock
+      SANDBOX_ROOT: /sandbox
+
+    security_opt:
+      - no-new-privileges:true
+
+
+  # K-3b (plan-k Ek A): kullanıcı adı / şifreli giriş kapısı + izin listeli proxy.
+  # Orchestrator'a yalnız ai-network üzerinden gider; mount yok, docker.sock yok.
+  ceo-gateway:
+    build:
+      context: ./gateway
+
+    container_name: ai-ceo-gateway
+    restart: unless-stopped
+
+    networks:
+      - ai-network
+
+    ports:
+      - "127.0.0.1:18010:8000"
+
+    env_file:
+      # Kullanıcı scripts/set_ui_password.sh ile yazar; yoksa giriş kapalı kalır.
+      - path: ./secrets/ui-auth.env
+        required: false
+      # K-3f (plan-k Ek B3): VAPID anahtarı, scripts/set_ui_push_keys.sh; yoksa bildirim kapalı.
+      - path: ./secrets/ui-push.env
+        required: false
+      # J-2 (plan-j F): otomasyon bildirim anahtarı, scripts/set_automation_key.sh; yoksa /internal/notify kapalı.
+      - path: ./secrets/automation.env
+        required: false
+
+    environment:
+      TZ: Europe/Istanbul
+      ORCHESTRATOR_URL: http://ai-orchestrator:8000
+      UI_SESSION_HOURS: 12
+      PUSH_STORE: /data/push.json
+
+    # K-3f (Ek B4): tek yazılabilir yer; abonelikler + duyurulan onaylar.
+    volumes:
+      - /home/savas/AI/data/gateway:/data:rw
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+
+networks:
+  ai-network:
+    external: true

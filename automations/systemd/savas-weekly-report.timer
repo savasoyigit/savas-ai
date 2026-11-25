@@ -1,0 +1,9 @@
+[Unit]
+Description=SAVAS AI haftalık rapor pazar 21:40
+
+[Timer]
+OnCalendar=Sun *-*-* 21:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

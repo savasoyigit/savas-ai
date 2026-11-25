@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+httpx
+cryptography==44.0.2

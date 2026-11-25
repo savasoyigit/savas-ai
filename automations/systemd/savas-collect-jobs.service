@@ -1,0 +1,7 @@
+[Unit]
+Description=SAVAS AI ilan toplama (J-3, LLM yok)
+
+[Service]
+Type=oneshot
+# --dump-mail: uyarı e-postalarından son 20'si data/automations/mail-samples/ altında tutulur (ayrıştırıcı ayarı için; J-4'te kaldırılabilir).
+ExecStart=/usr/bin/python3 %h/AI/automations/collect_jobs.py --dump-mail

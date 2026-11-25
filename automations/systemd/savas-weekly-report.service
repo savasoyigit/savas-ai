@@ -1,0 +1,7 @@
+[Unit]
+Description=SAVAS AI haftalık rapor (J-2, LLM yok)
+After=savas-daily-summary.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/AI/automations/weekly_report.py

@@ -1,0 +1,50 @@
+{
+  "models": [
+    {"id": "gh/gpt-4.1", "provider": "github-copilot", "location": "cloud",
+     "capabilities": ["tool_calling", "coding"], "enabled": true, "max_output": 4096,
+     "context": null, "fallback": "gh/gpt-4o", "verified": "2026-11-13",
+     "notes": "C-2 smoke 200; tool_calling canlıda doğrulandı (Ares delegate). max_output = politika sınırı"},
+    {"id": "gh/gpt-4o", "provider": "github-copilot", "location": "cloud",
+     "capabilities": ["tool_calling"], "enabled": true, "max_output": 4096,
+     "context": null, "fallback": null, "verified": "2026-11-13",
+     "notes": "C-2 smoke 200; tool_calling C-7'de doğrulandı (discover_models.py tools: finish_reason tool_calls). coding etiketi verilmedi"},
+    {"id": "gh/claude-sonnet-5.5", "provider": "github-copilot", "location": "cloud",
+     "capabilities": [], "enabled": false, "max_output": 4096,
+     "context": null, "fallback": null, "verified": null,
+     "notes": "C-2: 400 The requested model is not supported"},
+    {"id": "gh/gpt-5.6-sol", "provider": "github-copilot", "location": "cloud",
+     "capabilities": [], "enabled": false, "max_output": 4096,
+     "context": null, "fallback": null, "verified": null,
+     "notes": "C-2: 400 The requested model is not supported"},
+    {"id": "gh/claude-haiku-5.5", "provider": "github-copilot", "location": "cloud",
+     "capabilities": [], "enabled": false, "max_output": 4096,
+     "context": null, "fallback": null, "verified": null,
+     "notes": "C-2: 400 The requested model is not supported"},
+    {"id": "gh/gemini-3.8-flash", "provider": "github-copilot", "location": "cloud",
+     "capabilities": [], "enabled": false, "max_output": 4096,
+     "context": null, "fallback": null, "verified": null,
+     "notes": "C-2: 400 The requested model is not supported"},
+    {"id": "gpt-oss-20b-Q4_K_M", "provider": "llama.cpp", "location": "local",
+     "capabilities": ["tool_calling", "coding"], "enabled": true, "max_output": 4096,
+     "context": 8192, "fallback": null, "verified": "2026-11-14",
+     "notes": "C-8.1: smoke/tools OK, kod testi 3/3 (iki koşu). id = llama-server model adı. context = yönlendirme sınırı (sunucu 16384; 7685 token prompt ölçüldü: 266 sn). LOCAL_LLM_URL boşsa seçilmez"}
+  ],
+  "task_types": {
+    "orchestrate": {"requires": ["tool_calling"], "prefer": ["gh/gpt-4.1"]},
+    "coding":      {"requires": ["coding"],       "prefer": ["gh/gpt-4.1"]},
+    "research":    {"requires": [],               "prefer": ["gh/gpt-4.1"]},
+    "review":      {"requires": [],               "prefer": ["gh/gpt-4.1"]},
+    "writing":     {"requires": [],               "prefer": ["gh/gpt-4.1"]},
+    "general":     {"requires": [],               "prefer": ["gh/gpt-4.1"]}
+  },
+  "workers": {
+    "ares":    {"default": "orchestrate", "allowed": ["orchestrate"]},
+    "jarvis":  {"default": "coding",      "allowed": ["coding", "review", "general"]},
+    "oracle":  {"default": "research",    "allowed": ["research", "general"]},
+    "gordon":  {"default": "review",      "allowed": ["review", "coding", "general"]},
+    "willy":   {"default": "writing",     "allowed": ["writing", "general"]},
+    "gandalf": {"default": "general",     "allowed": ["general", "research"]}
+  },
+  "default_model": "gh/gpt-4.1",
+  "local_switch_percent": 100
+}

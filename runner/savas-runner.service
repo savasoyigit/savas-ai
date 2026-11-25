@@ -1,0 +1,15 @@
+# SAVAS runner (plan-i karar A). Kurulum: ~/.config/systemd/user/ altına kopyalanır.
+[Unit]
+Description=SAVAS AI runner (sandbox jobs over a unix socket)
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I /home/savas/AI/runner/savas_runner.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+[Install]
+WantedBy=default.target

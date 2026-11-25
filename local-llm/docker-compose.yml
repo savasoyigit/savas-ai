@@ -1,0 +1,40 @@
+# Local LLM (C-8.1): llama.cpp llama-server, yalnız CPU, router modu (istekteki "model" alanı
+# /models altındaki GGUF'u seçer; aynı anda tek model). Port host'a yayınlanmaz.
+services:
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:c7d58273d753d33a352e5c41ab300c5ae040a16fa4b202231bb606478065c124  # build 12375
+    container_name: ai-llama
+    restart: unless-stopped
+
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --models-dir
+      - /models
+      - --models-max
+      - "1"
+      - --models-preset
+      - /presets.ini
+
+    volumes:
+      - ./data/models:/models:ro
+      - ./presets.ini:/presets.ini:ro
+
+    # Çekirdek 0 diğer servislere kalır; sınır mmap'li model sayfalarını da kapsar.
+    cpuset: "1-5"
+    mem_limit: 18g
+    memswap_limit: 18g
+
+    networks:
+      - ai-network
+
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  ai-network:
+    external: true

@@ -1,0 +1,36 @@
+services:
+  omniroute:
+    image: diegosouzapw/omniroute:3.8.53@sha256:b52a17661a1aff42ffb78f349f423e986dfc55b57274f28559f8387622ef8ee4
+    container_name: ai-omniroute
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      DATA_DIR: /app/data
+      PORT: 20128
+      DASHBOARD_PORT: 20128
+      API_PORT: 20129
+      API_HOST: 0.0.0.0
+
+    volumes:
+      - omniroute-data:/app/data
+
+    networks:
+      - ai-network
+
+    ports:
+      - "127.0.0.1:20128:20128"
+      - "127.0.0.1:20129:20129"
+
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  omniroute-data:
+    name: omniroute-data
+
+networks:
+  ai-network:
+    external: true

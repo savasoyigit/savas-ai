@@ -1,0 +1,8 @@
+[Unit]
+Description=SAVAS AI gün sonu anlık görüntüsü 23:55
+
+[Timer]
+OnCalendar=*-*-* 23:55:00
+
+[Install]
+WantedBy=timers.target

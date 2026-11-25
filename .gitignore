@@ -1,0 +1,35 @@
+# Secret'lar
+secrets/
+*.env
+.env*
+!*.env.example
+*.key
+*.pem
+
+# Kişisel veri ve çalışma çıktıları
+data/
+backups/
+Kariyer/
+sandbox/
+runner/sock/
+local-llm/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite*
+*.log
+*.lock
+
+# Araç ve önbellekler
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.claude/settings.local.json
+node_modules/
+
+# Asistan çalışma notları ve ayarları (yalnız yerelde)
+CLAUDE.md
+UI.md
+docs/
+.claude/

@@ -1,0 +1,10 @@
+{
+  "repos": {
+    "savas-ai": "/home/savas/AI",
+    "valentine-calendar": {
+      "path": "/home/savas/valentine-calendar",
+      "test_profile": "webapp",
+      "exclude": ["profile-images", "*.old", "*backup*", "*.db.*", "*.before-*", "*.pre-*"]
+    }
+  }
+}

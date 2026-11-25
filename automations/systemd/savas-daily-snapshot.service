@@ -1,0 +1,6 @@
+[Unit]
+Description=SAVAS AI günün kullanım anlık görüntüsü (bildirim yok)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/AI/automations/daily_summary.py --snapshot

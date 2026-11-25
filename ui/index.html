@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1024">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SAVAS AI">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<title>SAVAS AI · Sanal Ofis</title>
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<div class="shell">
+  <nav class="sidebar" id="sidebar" aria-label="Ana menü">
+    <div class="logo">
+      <span class="logo-mark" id="logo-mark"></span>
+      <span class="logo-text">SAVAS<b>AI</b></span>
+    </div>
+    <a class="nav active" href="#office"><span class="ico">▣</span><span class="lbl">Ofis</span></a>
+    <a class="nav" href="#console"><span class="ico">›</span><span class="lbl">Konsol</span></a>
+    <a class="nav" href="#jobs"><span class="ico">✉</span><span class="lbl">İlanlar</span></a>
+    <a class="nav" href="#goals"><span class="ico">◎</span><span class="lbl">Hedefler</span></a>
+    <a class="nav" href="#metrics"><span class="ico">▤</span><span class="lbl">Metrikler</span></a>
+    <a class="nav" href="#tasks"><span class="ico">☰</span><span class="lbl">Görevler</span></a>
+    <a class="nav" href="#feed"><span class="ico">≋</span><span class="lbl">Aktivite</span></a>
+    <button class="nav" type="button" id="nav-summary"><span class="ico">◆</span><span class="lbl">Onaylar</span> <span class="pill" id="nav-approvals">–</span></button>
+    <div class="sidebar-foot">
+      <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">bağlanıyor…</span></div>
+      <div class="muted small" id="last-update"></div>
+      <div class="muted small" id="access-note">Yerel erişim</div>
+      <form method="post" action="/logout" id="logout" hidden>
+        <button type="submit" class="icon-btn small">Çıkış <span id="session-user"></span></button>
+      </form>
+    </div>
+  </nav>
+
+  <main class="main">
+    <header class="hud" id="hud" aria-label="Sistem durumu"></header>
+    <div class="banner" id="banner" hidden></div>
+
+    <section class="office" id="office" aria-label="Sanal ofis">
+      <svg class="links" id="links" aria-hidden="true"></svg>
+    </section>
+
+    <section class="bottom">
+      <div class="energy-box">
+        <div class="energy-head">
+          <span>ENERJİ <small class="muted">günlük bulut token bütçesi</small></span>
+          <span class="energy-num" id="energy-num">–</span>
+        </div>
+        <div class="energy-bar"><div class="energy-fill" id="energy-fill"></div></div>
+        <div class="muted small" id="energy-note"></div>
+      </div>
+      <div class="working-box">
+        <span>ÇALIŞAN AJANLAR</span>
+        <span class="energy-num" id="working-num">–</span>
+      </div>
+    </section>
+
+    <section class="panel-box console" id="console" aria-label="Mission Console">
+      <div class="box-head"><h2>Mission Console</h2><span class="muted small">Ares'e görev · Ctrl+Enter</span></div>
+      <form id="console-form">
+        <textarea id="console-text" rows="3" maxlength="4000" placeholder="Ares'e ne yapmasını istiyorsunuz?"></textarea>
+        <div class="row" id="console-actions"></div>
+      </form>
+      <div id="console-note" hidden></div>
+    </section>
+
+    <section class="panel-box jobs" id="jobs" aria-label="İlanlar">
+      <div class="box-head"><h2>İlanlar</h2><span class="muted small" id="jobs-note">LinkedIn · Kariyer.net · Remotive</span></div>
+      <div class="tabs" id="jobs-tabs" role="tablist"></div>
+      <ol class="task-list job-list" id="job-list"></ol>
+    </section>
+
+    <section class="panel-box goals" id="goals" aria-label="Hedefler">
+      <div class="box-head"><h2>Hedefler</h2><span class="muted small">sen başlatırsın · adımları kod seçer · hiçbir şey gönderilmez</span></div>
+      <div id="goals-body"></div>
+    </section>
+
+    <section class="panel-box metrics" id="metrics" aria-label="Metrikler">
+      <div class="box-head"><h2>Metrikler</h2><span class="muted small" id="metrics-note">token · hata · model başarısı</span></div>
+      <div class="tabs" id="metrics-tabs" role="tablist"></div>
+      <div id="metrics-body"></div>
+    </section>
+
+    <section class="lists">
+      <div class="panel-box" id="feed">
+        <div class="box-head">
+          <h2>Canlı aktivite</h2>
+          <label class="small"><input type="checkbox" id="feed-all"> tümü</label>
+        </div>
+        <div class="muted small" id="feed-source"></div>
+        <ol class="feed" id="feed-list"></ol>
+      </div>
+      <div class="panel-box" id="tasks">
+        <div class="box-head"><h2>Görevler</h2><span class="muted small">son 15</span></div>
+        <ol class="task-list" id="task-list"></ol>
+      </div>
+    </section>
+  </main>
+
+  <aside class="side" id="side" aria-label="Ayrıntı paneli">
+    <div class="side-head">
+      <span id="side-title">Ofis özeti</span>
+      <button type="button" class="icon-btn" id="side-close" title="Paneli kapat" aria-label="Paneli kapat">✕</button>
+    </div>
+    <div class="side-body" id="side-body"></div>
+  </aside>
+</div>
+<button type="button" class="side-open" id="side-open" hidden>⇤ Panel</button>
+<button type="button" class="menu-btn" id="menu-btn" aria-controls="sidebar" aria-expanded="false" aria-label="Menüyü aç">☰</button>
+<div class="backdrop" id="backdrop" hidden></div>
+</body>
+</html>

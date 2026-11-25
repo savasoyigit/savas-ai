@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1024">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SAVAS AI">
+<link rel="manifest" href="/ui/manifest.json">
+<link rel="apple-touch-icon" href="/ui/icons/icon-180.png">
+<link rel="icon" href="/ui/icons/icon-192.png">
+<title>SAVAS AI · Giriş</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    background: #0b1024; color: #d6defc; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background-image: linear-gradient(#18214433 1px, transparent 1px), linear-gradient(90deg, #18214433 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  form { width: min(360px, 100%); background: #0f1630; border: 1px solid #24305c; padding: 24px; display: grid; gap: 14px;
+         box-shadow: 0 0 0 3px #0b1024, 0 0 0 4px #3a4a8a, 0 20px 40px #0009; }
+  h1 { margin: 0 0 4px; font: 800 22px ui-monospace, Menlo, monospace; letter-spacing: .18em; }
+  h1 b { color: #8b5cff; }
+  label { display: grid; gap: 6px; font: 600 12px ui-monospace, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; color: #7d89b8; }
+  input { font: 16px system-ui, sans-serif; color: #d6defc; background: #141d3d; border: 1px solid #3a4a8a; padding: 10px 12px; border-radius: 0; }
+  input:focus { outline: 2px solid #26e0ff; outline-offset: 1px; }
+  button { font: 700 14px ui-monospace, Menlo, monospace; letter-spacing: .12em; padding: 12px; border: 0; cursor: pointer;
+           background: #5a2fd6; color: #fff; box-shadow: 0 3px 0 #3a1d99; }
+  button:active { transform: translateY(2px); box-shadow: 0 1px 0 #3a1d99; }
+  .error { color: #ffc9d0; background: #2a0f1a; border: 1px solid #ff4d5e; padding: 8px 10px; font-size: 13px; }
+  .error:empty, .notice:empty { display: none; }
+  .notice { color: #ffe08a; font-size: 13px; }
+  .muted { color: #7d89b8; font-size: 12px; }
+</style>
+</head>
+<body>
+<form method="post" action="/login" autocomplete="on">
+  <h1>SAVAS<b>AI</b></h1>
+  <div class="muted">Sanal ofis · yetkili giriş</div>
+  <div class="notice">{{notice}}</div>
+  <div class="error" role="alert">{{error}}</div>
+  <input type="hidden" name="next" value="{{next}}">
+  <label>Kullanıcı adı <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" required></label>
+  <label>Şifre <input name="password" type="password" autocomplete="current-password" required></label>
+  <button type="submit">GİRİŞ</button>
+</form>
+</body>
+</html>
